@@ -22,6 +22,8 @@ void PcLegacyXa_SetPauseHold(int);
 int PcLegacyXa_IsVoiceAudioDraining(void);
 int PcLegacyXa_VoiceGapHold(void);
 void PcLegacyXa_SetMasterVolume(float);
+int PcLegacyXa_PlayFile(const char*);
+void PcLegacyXa_StopFile(void);
 #endif
 
 void PcSoftwareXa_PlayWithParams(uint16_t, uint16_t, uint32_t, uint32_t);
@@ -33,6 +35,8 @@ void PcSoftwareXa_SetPauseHold(int);
 int PcSoftwareXa_IsVoiceAudioDraining(void);
 int PcSoftwareXa_VoiceGapHold(void);
 void PcSoftwareXa_SetMasterVolume(float);
+int PcSoftwareXa_PlayFile(const char*);
+void PcSoftwareXa_StopFile(void);
 
 #if defined(SH_NO_OPENAL)
 #define XA_DISPATCH_VOID(publicName, legacyName, softwareName, args, callargs) \
@@ -59,6 +63,22 @@ XA_DISPATCH_VOID(XaPlayer_SetPauseHold, PcLegacyXa_SetPauseHold,
                  PcSoftwareXa_SetPauseHold, (int hold), (hold))
 XA_DISPATCH_VOID(XaPlayer_SetMasterVolume, PcLegacyXa_SetMasterVolume,
                  PcSoftwareXa_SetMasterVolume, (float volume), (volume))
+XA_DISPATCH_VOID(XaPlayer_StopFile, PcLegacyXa_StopFile, PcSoftwareXa_StopFile, (void), ())
+
+int XaPlayer_PlayFile(const char* path)
+{
+    /* Hand-written rather than XA_DISPATCH_VOID (it returns a value), so it
+     * needs the SH_NO_OPENAL branch spelled out -- the macro collapses to the
+     * software path on its own, this does not, and naming PcLegacyXa_PlayFile
+     * where xa_player.c is not built leaves it undefined at link. */
+#if defined(SH_NO_OPENAL)
+    return PcSoftwareXa_PlayFile(path);
+#else
+    return PcAudioConfig_UsesSoftwareSpu()
+        ? PcSoftwareXa_PlayFile(path)
+        : PcLegacyXa_PlayFile(path);
+#endif
+}
 
 int Xa_IsVoiceAudioDraining(void)
 {
