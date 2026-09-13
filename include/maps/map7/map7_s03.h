@@ -477,7 +477,13 @@ extern s_800F3D48_0 D_800EC53C;
 extern s_800F3D48_0 D_800EC614;
 extern s_800F3D48_0 D_800EC5A8;
 
-extern s_800F3D48 D_800F2448;
+/* The 80-entry pool it has always been, not one entry. Declared as a single
+ * struct it claimed sizeof(s_800F3D48) bytes, so the fixed 0x1900 memset in
+ * func_800D952C looked like a 6400-byte write into an 88-byte object. The
+ * NDK builds with -D_FORTIFY_SOURCE=2, which turns that into __memset_chk
+ * and aborts -- the final-boss crash. The storage was never short (the stub
+ * is 0x3000); only this declaration was wrong. */
+extern s_800F3D48 D_800F2448[80];
 extern s32        D_800F3D90;
 
 extern s_800F3D48_0  D_800EC6EC;
