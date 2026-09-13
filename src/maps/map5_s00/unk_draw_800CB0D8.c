@@ -52,8 +52,25 @@ bool func_800CB25C(POLY_FT4** poly, s32 idx) // 0x800CB25C
         s32             field_160;
     } s_func_800CB25C;
 
-    DVECTOR          sp10[5][5];
-    s32              sp78[5][5];
+    /* 27 entries of backing store for a 5x5 grid, reached through a [5] pointer
+     * so every sp10[i][j] / sp78[i][j] below reads exactly as it did.
+     *
+     * The projection loop steps i by 3 and stores THREE entries per iteration
+     * (gte_stsxy3c / gte_stsz3c are the contiguous forms), covering 0..26. Its
+     * last iteration starts at [4][4] -- element 24, the last one -- and writes
+     * 24, 25 and 26, so it runs 8 bytes past a 25-entry array. PSX let that go:
+     * the two arrays sat 0x68 apart on its stack and the spill landed in the
+     * gap and in sp78's first entry. Modern layouts put the stack canary there
+     * instead, so -fstack-protector aborts on return -- the sewer crash.
+     *
+     * The spill is given real storage rather than removed: the writes are what
+     * the original did, and only elements 0..24 are ever read back. The PSX
+     * aliasing (sp10's overflow landing in sp78[0][0]) is not reproducible
+     * portably and was never intended -- it corrupted the first quad's Z. */
+    DVECTOR          sp10_store[27];
+    s32              sp78_store[27];
+    DVECTOR        (*sp10)[5] = (DVECTOR (*)[5])sp10_store;
+    s32            (*sp78)[5] = (s32 (*)[5])sp78_store;
     s32              j;
     s32              i;
     s32              var_v0_4;
