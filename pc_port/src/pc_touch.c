@@ -476,8 +476,13 @@ typedef struct
 } s_TgCtl;
 
 enum { TG_C_TRIANGLE = 0, TG_C_CIRCLE, TG_C_CROSS, TG_C_SQUARE,
-       TG_C_L1, TG_C_L2, TG_C_START, TG_C_SELECT, TG_C_R2, TG_C_R1,
+       TG_C_L1, TG_C_L2, TG_C_START, TG_C_MENU, TG_C_SELECT, TG_C_R2, TG_C_R1,
        TG_C_COUNT };
+
+/* The quick-options panel has no PSX button to press, so its control carries no
+ * pad bit and is handled on its own edge below -- the same way TB_MENU is in the
+ * context style. Zero means "not a pad control". */
+#define TG_NOBIT 0x0000
 
 static s_TgCtl s_TgCtls[TG_C_COUNT];
 static int     s_TgHeld[TG_C_COUNT];
@@ -507,8 +512,11 @@ static void Tg_Layout(float aspectW)
     /* Top row: shoulders at the outside, Start/Select inboard of them. */
     s_TgCtls[TG_C_L1]     = (s_TgCtl){ 0.14f,            0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_L1 };
     s_TgCtls[TG_C_L2]     = (s_TgCtl){ 0.34f,            0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_L2 };
-    s_TgCtls[TG_C_START]  = (s_TgCtl){ aspectW * 0.5f - 0.11f, 0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_START };
-    s_TgCtls[TG_C_SELECT] = (s_TgCtl){ aspectW * 0.5f + 0.11f, 0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_SELECT };
+    /* Three across the middle now -- Start, Menu, Select -- re-centred so the
+     * group still sits on the screen's midline rather than the pair's. */
+    s_TgCtls[TG_C_START]  = (s_TgCtl){ aspectW * 0.5f - 0.22f, 0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_START };
+    s_TgCtls[TG_C_MENU]   = (s_TgCtl){ aspectW * 0.5f,         0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_NOBIT };
+    s_TgCtls[TG_C_SELECT] = (s_TgCtl){ aspectW * 0.5f + 0.22f, 0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_SELECT };
     s_TgCtls[TG_C_R2]     = (s_TgCtl){ aspectW - 0.34f,   0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_R2 };
     s_TgCtls[TG_C_R1]     = (s_TgCtl){ aspectW - 0.14f,   0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_R1 };
 
@@ -1117,8 +1125,12 @@ void Pc_Touch_Update(void)
             s_CancelFrames = TC_ACTION_FRAMES;
         }
 
-        if (t->role == TR_MOVE)
+        if (t->role == TR_MOVE || t->role == TR_TG_STICK)
         {
+            /* TR_TG_STICK was missing here, so the fixed pad's knob stayed
+             * wherever it was let go of -- and because s_LeftX/s_LeftY are only
+             * written while a finger is on the stick, the last deflection kept
+             * being reported and the character kept walking. */
             s_StickActive = 0;
             s_LeftX = s_LeftY = 128;
             s_Running = 0;
@@ -1160,8 +1172,19 @@ void Pc_Touch_Update(void)
 
             for (c = 0; c < TG_C_COUNT; c++)
             {
-                if (s_TgHeld[c])
+                if (s_TgHeld[c] && s_TgCtls[c].bit != TG_NOBIT)
                     s_PadWord &= (unsigned short)~s_TgCtls[c].bit;
+            }
+
+            /* Edge-triggered, or a held finger would toggle the panel open and
+             * shut every pad update. Same shape as TB_MENU above. */
+            {
+                static int s_tgMenuWas;
+                const int  menuNow = s_TgHeld[TG_C_MENU];
+
+                if (menuNow && !s_tgMenuWas)
+                    Pc_QuickOptions_Toggle();
+                s_tgMenuWas = menuNow;
             }
         }
         if (s_Buttons[TB_LIGHT].holdFrames > 0) Tc_PressAction(&s_PadWord, cfg->light);
@@ -1457,8 +1480,29 @@ void Pc_Touch_Draw(void)
                 int hw = TC_UR(s_TgCtls[c].hw);
                 int hh = TC_UR(s_TgCtls[c].hh);
 
-                Tc_Quad(&batch, bx - hw, by - hh, bx + hw, by - hh,
-                                bx - hw, by + hh, bx + hw, by + hh, lum);
+                if (s_TgCtls[c].bit == TG_NOBIT)
+                {
+                    /* Three stacked bars: the settings mark every phone player
+                     * already reads, and the only control here that is not a
+                     * PSX button. Outlined so it does not read as a slab. */
+                    int t = (hh * 16) / 100;
+                    int g = (hh * 42) / 100;
+                    int w = (hw * 46) / 100;
+                    int k;
+
+                    for (k = -1; k <= 1; k++)
+                    {
+                        int yc = by + k * g;
+
+                        Tc_Quad(&batch, bx - w, yc - t, bx + w, yc - t,
+                                        bx - w, yc + t, bx + w, yc + t, lum);
+                    }
+                }
+                else
+                {
+                    Tc_Quad(&batch, bx - hw, by - hh, bx + hw, by - hh,
+                                    bx - hw, by + hh, bx + hw, by + hh, lum);
+                }
             }
         }
     }
