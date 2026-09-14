@@ -37,6 +37,7 @@ enum { TR_NONE = 0, TR_MOVE, TR_LOOK, TR_BUTTON, TR_ADVANCE };
 
 /* Actions the on-screen buttons drive. Indices into s_Buttons. */
 enum { TB_AIM = 0, TB_ITEM, TB_MAP, TB_START, TB_RUN, TB_BACK, TB_FIRE, TB_MENU,
+       TB_SKIP,
        TB_LIGHT, TB_VIEW, TB_COUNT };
 
 typedef struct
@@ -92,6 +93,9 @@ static s_TouchButton s_Buttons[TB_COUNT] = {
      * Light sits under Item, View between Map and Start. */
     /* TB_LIGHT */ { 0.760f, 0.640f, 0.062f, 0 },
     /* TB_VIEW  */ { 0.905f, 0.330f, 0.058f, 0 },
+    /* Corner escape slot only, like TB_BACK -- its own position is never
+     * used; it carries the glyph and the Skip binding. */
+    /* TB_SKIP  */ { 0.920f, 0.158f, 0.055f, 0 },
 };
 
 typedef struct
@@ -206,7 +210,7 @@ enum { TC_LEVEL_NONE = 0, TC_LEVEL_ESCAPE, TC_LEVEL_FULL };
  * tapping IS how you work one, so the tap-anywhere dismissal would back out
  * the instant you touched a dial and the puzzle could never be solved. */
 enum { TC_MODE_OFF = 0, TC_MODE_GAMEPLAY, TC_MODE_PAUSE, TC_MODE_MAP, TC_MODE_ADVANCE, TC_MODE_BACK,
-       TC_MODE_BACK_CURSOR, TC_MODE_ESCAPE, TC_MODE_TITLE };
+       TC_MODE_BACK_CURSOR, TC_MODE_ESCAPE, TC_MODE_TITLE, TC_MODE_SKIP };
 
 /* Gameplay gets the full scheme. Pause gets Start ALONE -- nothing else on that
  * screen responds to a pointer, so hiding the controls there left no way back
@@ -297,6 +301,24 @@ static int Tc_Mode(void)
         g_GameWork.gameState == GameState_MovieOpening ||
         g_GameWork.gameState == GameState_ExitMovie)
         return TC_MODE_ADVANCE;
+
+    /* The results/ranking screen at the end of a run. Its own gameState, and it
+     * moves on for exactly one bind -- Skip (func_801E342C). Every other test
+     * below fell through to "not InGame" and returned OFF, so a player with no
+     * pad reached the end of the game and could not leave the screen. */
+    if (g_GameWork.gameState == GameState_Unk15)
+        return TC_MODE_SKIP;
+
+    /* The end credits scroll. It runs inside map6_s02's update during InGame,
+     * so it looks exactly like gameplay from here -- the stamp is the only
+     * thing that knows. Two ticks of slack so a frame that skips the credits
+     * update does not blink the button out. */
+    {
+        extern int g_PcCreditsFrame;
+
+        if ((g_TickCount - g_PcCreditsFrame) <= 2)
+            return TC_MODE_SKIP;
+    }
 
     /* The brightness screen is a slider with no pointer support, so touch could
      * open it and then had no way out. It leaves on enter|cancel; Back sends
@@ -399,6 +421,8 @@ static int Tc_SoloButton(int mode)
         return TB_BACK;    /* brightness and friends leave on cancel */
     if (mode == TC_MODE_TITLE)
         return TB_MAP;     /* opens the achievement browser, and closes it */
+    if (mode == TC_MODE_SKIP)
+        return TB_SKIP;    /* results and credits move on with Skip */
 
     return -1;
 }
@@ -881,6 +905,7 @@ void Pc_Touch_Update(void)
             Tc_PressAction(&s_PadWord, cfg->action);
         if (s_Buttons[TB_ITEM].holdFrames  > 0) Tc_PressAction(&s_PadWord, cfg->item);
         if (s_Buttons[TB_MAP].holdFrames   > 0) Tc_PressAction(&s_PadWord, cfg->map);
+        if (s_Buttons[TB_SKIP].holdFrames  > 0) Tc_PressAction(&s_PadWord, cfg->skip);
         if (s_Buttons[TB_LIGHT].holdFrames > 0) Tc_PressAction(&s_PadWord, cfg->light);
         if (s_Buttons[TB_VIEW].holdFrames  > 0) Tc_PressAction(&s_PadWord, cfg->view);
         if (s_Buttons[TB_START].holdFrames > 0) Tc_PressAction(&s_PadWord, cfg->pause);
@@ -1225,6 +1250,22 @@ void Pc_Touch_Draw(void)
                                 cx - w, cy + h, cx + w, cy + h, lum);
                 Tc_Quad(&batch, cx - d, cy - h - d, cx + d, cy - h - d,
                                 cx - d, cy - h,     cx + d, cy - h,     lum);
+                break;
+            }
+            case TB_SKIP:
+            {
+                /* Two right-pointing triangles: the fast-forward mark, which is
+                 * what this does -- move the screen along. */
+                int a = (r * 30) / 100;
+                int k;
+
+                for (k = -1; k <= 1; k += 2)
+                {
+                    int ox = cx + (k * a) / 2;
+
+                    Tc_Quad(&batch, ox - a / 2, cy - a, ox - a / 2, cy + a,
+                                    ox + a / 2, cy,     ox + a / 2, cy, lum);
+                }
                 break;
             }
             case TB_MENU:

@@ -543,6 +543,17 @@ void func_801E386C(void) // 0x801E386C
     D_801E5E80 = 0x10000 / D_801E5E7C;
 }
 
+#ifdef SH_PC_PORT
+/* Tick of the last credits-scroll frame, read by pc_touch.
+ *
+ * The scroll runs inside map6_s02's own update during InGame, so no gameState
+ * or sysState test can tell it apart from ordinary gameplay -- touch offered
+ * the movement stick over a rolling credits list and nothing that sends Skip,
+ * which is the only bind that moves it along. A stamp rather than a flag
+ * because there is no single exit point to clear one at. */
+int g_PcCreditsFrame = -1000;
+#endif
+
 bool func_801E3970(void) // 0x801E3970
 {
     bool   showKcet;
@@ -573,6 +584,10 @@ bool func_801E3970(void) // 0x801E3970
     showKcet    = false;
     animateKcet = false;
     isFinished  = false;
+
+#ifdef SH_PC_PORT
+    g_PcCreditsFrame = g_TickCount;
+#endif
 
     vBlank = Q12_MULT_PRECISE(D_800C48F0, 0x1000);
 
