@@ -104,6 +104,14 @@ typedef struct
 
 #define QO_IS_VALUE_ROW(k) ((k) == ROW_OPT || (k) == ROW_EXTRA || (k) == ROW_CHEAT)
 
+/* ROW_PAGE reuses `extra` as its step. A row that names one is a labelled
+ * button: it goes where it says however it is activated, and Left/Right pass
+ * over it, which is what lets Previous and Next sit on the panel together. The
+ * desktop's single "Next page" leaves it 0 and keeps the value behaviour, where
+ * Left goes back a page and Right goes forward. */
+#define QO_ROW_TAKES_DIR(r) (QO_IS_VALUE_ROW((r)->kind) || \
+                             ((r)->kind == ROW_PAGE && (r)->extra == 0))
+
 static const QoRowDef s_page0[] = {
     { ROW_OPT,   "psx_dither",           0, NULL },  /* Texture_Filter */
     { ROW_OPT,   "msaa",                 0, NULL },  /* Antialiasing (restart) */
@@ -116,6 +124,13 @@ static const QoRowDef s_page0[] = {
     { ROW_EXTRA, NULL, QO_X_SHADOW,         "Shadow Resolution" },
     { ROW_OPT,   "bullet_decals",        0, NULL },
     { ROW_OPT,   "weather_sim_hz",       0, NULL },  /* Weather_Rate: 30 or 60 Hz */
+#if defined(QO_MOBILE)
+    /* Context vs Gamepad. It is a Controls-page row in the main menu and this
+     * is the Graphics section, which is a compromise: the quick menu has no
+     * Controls section at all, and the one setting a player wants to change
+     * without leaving the room is which pad is under their thumbs. */
+    { ROW_OPT,   "touch_style",          0, NULL },
+#endif
     { ROW_PAGE,  NULL, 0,                   "Next page  (HUD & Audio)" },
     { ROW_CLOSE, NULL, 0,                   "Close" },
 };
@@ -347,7 +362,7 @@ static const char* const s_pageTitles[QO_PAGES] = {
  * panel that is a ~50px stripe per row -- unreadable, and far below the ~44pt
  * minimum a fingertip can reliably hit. So on a touch target the SAME row
  * definitions are re-chunked into many short pages instead: five settings plus
- * the two navigation rows, each row then getting a seventh of the list.
+ * the three navigation rows, each row then getting an eighth of the list.
  *
  * Chunked WITHIN a section, never across one, so a page is never half Graphics
  * and half Audio; the title carries "(2/3)" to say where you are inside it.
@@ -356,9 +371,9 @@ static const char* const s_pageTitles[QO_PAGES] = {
  * someone added a row to one and not the other. */
 #if defined(QO_MOBILE)
 
-#define QO_M_CONTENT 5   /* settings per page, before the two nav rows */
+#define QO_M_CONTENT 5   /* settings per page, before the three nav rows */
 
-static QoRowDef s_mRows[QO_M_CONTENT + 2];
+static QoRowDef s_mRows[QO_M_CONTENT + 3];
 static char     s_mTitle[96];
 
 /* Every section ends with exactly ROW_PAGE then ROW_CLOSE (see the tables and
@@ -405,20 +420,44 @@ static int qo_page_count(void)
     return (t > 0) ? t : 1;
 }
 
+/* Even chunks rather than greedy ones. Filling each page to QO_M_CONTENT and
+ * letting the remainder fall into the last one ended Graphics on a page holding
+ * a single setting, and a short page moves the navigation rows: the row pitch
+ * is the list height divided by the row count, so the same spot on the glass
+ * belongs to a different row. Sizes now differ by at most one across a section,
+ * which keeps a repeated tap on Next landing on Next. */
+static void qo_chunk_span(int content, int chunks, int chunk, int* base, int* len)
+{
+    const int q = content / chunks;
+    const int r = content % chunks;
+
+    *len  = q + ((chunk < r) ? 1 : 0);
+    *base = (chunk * q) + ((chunk < r) ? chunk : r);
+}
+
 static const QoRowDef* qo_page_rows(int page, int* count)
 {
     const QoRowDef* src;
-    int n, sec, chunk, chunks, base, i, k = 0;
+    int n, sec, chunk, chunks, base, len, i, k = 0;
 
     qo_locate(page, &sec, &chunk, &chunks);
-    src  = qo_section_rows(sec, &n);
-    base = chunk * QO_M_CONTENT;
+    src = qo_section_rows(sec, &n);
+    qo_chunk_span(n - 2, chunks, chunk, &base, &len);
 
-    for (i = 0; i < QO_M_CONTENT && (base + i) < (n - 2); i++)
+    for (i = 0; i < len && (base + i) < (n - 2); i++)
         s_mRows[k++] = src[base + i];
+
+    /* Both directions, because a phone has no shoulder buttons to page with and
+     * no way back except wrapping the whole way round. */
+    memset(&s_mRows[k], 0, sizeof(s_mRows[k]));
+    s_mRows[k].kind  = ROW_PAGE;
+    s_mRows[k].extra = -1;
+    s_mRows[k].label = "Previous page";
+    k++;
 
     memset(&s_mRows[k], 0, sizeof(s_mRows[k]));
     s_mRows[k].kind  = ROW_PAGE;
+    s_mRows[k].extra = +1;
     s_mRows[k].label = "Next page";
     k++;
 
@@ -1472,7 +1511,10 @@ static void qo_activate(const QoRowDef* r, int dir)
         }
         case ROW_EXTRA: PcOpt_QuickExtraAdjust(r->extra, dir); break;
         case ROW_CHEAT: Pc_Cheats_Adjust(r->cpage, r->extra, dir); break;
-        case ROW_PAGE:  qo_beep(Sfx_MenuMove); qo_set_page(s_page + (dir < 0 ? -1 : +1)); break;
+        case ROW_PAGE:
+            qo_beep(Sfx_MenuMove);
+            qo_set_page(s_page + (r->extra != 0 ? r->extra : (dir < 0 ? -1 : +1)));
+            break;
         case ROW_CLOSE: qo_beep(Sfx_MenuCancel); Pc_QuickOptions_Close(); break;
         case ROW_ACTION: break; /* confirm-only; see the ROW_ACTION comment */
         default: break;
@@ -1797,16 +1839,17 @@ void Pc_QuickOptions_Update(int up, int down, int left, int right,
                 else
                     qo_confirm(&rows[row]);
             }
-            if (mRClick && (QO_IS_VALUE_ROW(rows[row].kind) || rows[row].kind == ROW_PAGE))
+            if (mRClick && QO_ROW_TAKES_DIR(&rows[row]))
             { s_sel = row; qo_activate(&rows[row], -1); }
             if (wheel && QO_IS_VALUE_ROW(rows[row].kind))
                 qo_activate(&rows[row], wheel > 0 ? +1 : -1);
         }
     }
 
-    /* The page row adjusts like a value: Left/right-click go back a page,
-     * Right/confirm go forward. */
-    if (QO_IS_VALUE_ROW(rows[s_sel].kind) || rows[s_sel].kind == ROW_PAGE)
+    /* A page row with no step of its own adjusts like a value: Left and a
+     * right-click go back a page, Right and Confirm go forward. Previous and
+     * Next carry their own step and take Confirm only. */
+    if (QO_ROW_TAKES_DIR(&rows[s_sel]))
     {
         if (left)  qo_activate(&rows[s_sel], -1);
         if (right) qo_activate(&rows[s_sel], +1);
@@ -1972,7 +2015,10 @@ void Pc_QuickOptions_Draw(void)
      * sense on a phone, where there is no second place to look and no cursor to
      * drag with. Centred, and deliberately not draggable -- a drag here is the
      * page swipe. */
-    panelW = 0.94f * vpW;
+    /* Not the full width. A phone in landscape is better than two to one, so
+     * 94% of it put a two-word label and a number at opposite ends of a stripe
+     * most of the screen long, with nothing in between. */
+    panelW = 0.80f * vpW;
     panelH = 0.90f * vpH;
     panelL = (vpW - panelW) * 0.5f;
     panelB = (vpH - panelH) * 0.5f;
