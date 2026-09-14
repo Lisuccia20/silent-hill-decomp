@@ -90,7 +90,7 @@ extern void        PcOpt_QuickViewReset(int mode);
 #define QO_MOBILE 1
 #endif
 
-enum { ROW_OPT = 0, ROW_EXTRA, ROW_PAGE, ROW_CLOSE, ROW_CHEAT, ROW_ACTION };
+enum { ROW_OPT = 0, ROW_EXTRA, ROW_PAGE, ROW_PAGEPREV, ROW_CLOSE, ROW_CHEAT, ROW_ACTION };
 enum { QO_A_VIEWRESET = 0 };
 
 typedef struct
@@ -116,6 +116,12 @@ static const QoRowDef s_page0[] = {
     { ROW_EXTRA, NULL, QO_X_SHADOW,         "Shadow Resolution" },
     { ROW_OPT,   "bullet_decals",        0, NULL },
     { ROW_OPT,   "weather_sim_hz",       0, NULL },  /* Weather_Rate: 30 or 60 Hz */
+#if defined(QO_MOBILE)
+    /* Not a graphics setting, but repagination leaves Weather_Rate alone on the
+     * last chunk of this section, and the switch between the context overlay and
+     * the fixed pad is worth reaching without leaving the game. Applies live. */
+    { ROW_OPT,   "touch_style",          0, NULL },  /* Touch_Style: Context or Gamepad */
+#endif
     { ROW_PAGE,  NULL, 0,                   "Next page  (HUD & Audio)" },
     { ROW_CLOSE, NULL, 0,                   "Close" },
 };
@@ -358,7 +364,7 @@ static const char* const s_pageTitles[QO_PAGES] = {
 
 #define QO_M_CONTENT 5   /* settings per page, before the two nav rows */
 
-static QoRowDef s_mRows[QO_M_CONTENT + 2];
+static QoRowDef s_mRows[QO_M_CONTENT + 3];
 static char     s_mTitle[96];
 
 /* Every section ends with exactly ROW_PAGE then ROW_CLOSE (see the tables and
@@ -416,6 +422,16 @@ static const QoRowDef* qo_page_rows(int page, int* count)
 
     for (i = 0; i < QO_M_CONTENT && (base + i) < (n - 2); i++)
         s_mRows[k++] = src[base + i];
+
+    /* Both directions, not just forward. One "Next page" row meant the only way
+     * back was all the way round, and repagination makes that a long trip: the
+     * sections are cut into chunks of five, so there are far more pages here
+     * than the desktop's four. Desktop still adjusts its single page row like a
+     * value (left goes back), which is why that row keeps its direction. */
+    memset(&s_mRows[k], 0, sizeof(s_mRows[k]));
+    s_mRows[k].kind  = ROW_PAGEPREV;
+    s_mRows[k].label = "Previous page";
+    k++;
 
     memset(&s_mRows[k], 0, sizeof(s_mRows[k]));
     s_mRows[k].kind  = ROW_PAGE;
@@ -1473,6 +1489,8 @@ static void qo_activate(const QoRowDef* r, int dir)
         case ROW_EXTRA: PcOpt_QuickExtraAdjust(r->extra, dir); break;
         case ROW_CHEAT: Pc_Cheats_Adjust(r->cpage, r->extra, dir); break;
         case ROW_PAGE:  qo_beep(Sfx_MenuMove); qo_set_page(s_page + (dir < 0 ? -1 : +1)); break;
+        /* Its own row, so it goes back whichever way it was activated. */
+        case ROW_PAGEPREV: qo_beep(Sfx_MenuMove); qo_set_page(s_page - 1); break;
         case ROW_CLOSE: qo_beep(Sfx_MenuCancel); Pc_QuickOptions_Close(); break;
         case ROW_ACTION: break; /* confirm-only; see the ROW_ACTION comment */
         default: break;
@@ -1797,7 +1815,8 @@ void Pc_QuickOptions_Update(int up, int down, int left, int right,
                 else
                     qo_confirm(&rows[row]);
             }
-            if (mRClick && (QO_IS_VALUE_ROW(rows[row].kind) || rows[row].kind == ROW_PAGE))
+            if (mRClick && (QO_IS_VALUE_ROW(rows[row].kind) ||
+                            rows[row].kind == ROW_PAGE || rows[row].kind == ROW_PAGEPREV))
             { s_sel = row; qo_activate(&rows[row], -1); }
             if (wheel && QO_IS_VALUE_ROW(rows[row].kind))
                 qo_activate(&rows[row], wheel > 0 ? +1 : -1);
@@ -1806,7 +1825,8 @@ void Pc_QuickOptions_Update(int up, int down, int left, int right,
 
     /* The page row adjusts like a value: Left/right-click go back a page,
      * Right/confirm go forward. */
-    if (QO_IS_VALUE_ROW(rows[s_sel].kind) || rows[s_sel].kind == ROW_PAGE)
+    if (QO_IS_VALUE_ROW(rows[s_sel].kind) ||
+        rows[s_sel].kind == ROW_PAGE || rows[s_sel].kind == ROW_PAGEPREV)
     {
         if (left)  qo_activate(&rows[s_sel], -1);
         if (right) qo_activate(&rows[s_sel], +1);
@@ -1972,7 +1992,7 @@ void Pc_QuickOptions_Draw(void)
      * sense on a phone, where there is no second place to look and no cursor to
      * drag with. Centred, and deliberately not draggable -- a drag here is the
      * page swipe. */
-    panelW = 0.94f * vpW;
+    panelW = 0.84f * vpW;
     panelH = 0.90f * vpH;
     panelL = (vpW - panelW) * 0.5f;
     panelB = (vpH - panelH) * 0.5f;
@@ -2084,7 +2104,7 @@ void Pc_QuickOptions_Draw(void)
          * here either. Describing the gestures that DO exist is the only version
          * of this line worth the width. */
         snprintf(hint, sizeof(hint),
-                 "Tap - / + to adjust      Next page and Close at the bottom      * req restart");
+                 "Tap - / + to adjust      Page and Close at the bottom      * req restart");
         (void)0;
 #else
         snprintf(hint, sizeof(hint),
