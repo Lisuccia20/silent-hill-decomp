@@ -1198,6 +1198,26 @@ else if (strcmp(key, "enable_plugins") == 0)
         {
             g_PcConfig.raSpectator = (atoi(value) != 0);
         }
+        else if (strcmp(key, "save_sync") == 0)
+        {
+            g_PcConfig.saveSync = (atoi(value) != 0);
+        }
+        else if (strcmp(key, "save_sync_url") == 0)
+        {
+            if (strlen(value) < sizeof(g_PcConfig.saveSyncUrl))
+            {
+                strncpy(g_PcConfig.saveSyncUrl, value, sizeof(g_PcConfig.saveSyncUrl) - 1);
+                g_PcConfig.saveSyncUrl[sizeof(g_PcConfig.saveSyncUrl) - 1] = '\0';
+            }
+        }
+        else if (strcmp(key, "save_sync_token") == 0)
+        {
+            if (strlen(value) < sizeof(g_PcConfig.saveSyncToken))
+            {
+                strncpy(g_PcConfig.saveSyncToken, value, sizeof(g_PcConfig.saveSyncToken) - 1);
+                g_PcConfig.saveSyncToken[sizeof(g_PcConfig.saveSyncToken) - 1] = '\0';
+            }
+        }
         else if (strcmp(key, "ra_hash_override") == 0)
         {
             if (strlen(value) < sizeof(g_PcConfig.raHashOverride))
