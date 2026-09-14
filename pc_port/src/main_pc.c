@@ -47,6 +47,7 @@
 const char* Ios_DocumentsPath(void);
 void        Ios_StageBundledAssets(void);
 void        Ios_EnsureMemoryCard(void);
+void        Ios_EnsureModFolders(void);
 #endif
 
 #include "common.h"
@@ -1031,6 +1032,8 @@ int main(int argc, char* argv[])
     Ios_StageBundledAssets();
     /* Before any save screen can ask whether a card is present. */
     Ios_EnsureMemoryCard();
+    /* So Files.app has somewhere to show the player before they own a mod. */
+    Ios_EnsureModFolders();
 #endif
 
     /* Log file is NOT opened until after config load. SH_DBG calls before
