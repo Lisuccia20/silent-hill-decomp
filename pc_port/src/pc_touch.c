@@ -33,7 +33,8 @@
 /* Roles a contact can take, decided once when it lands and held until release:
  * a thumb that starts on the movement side must keep steering even if it slides
  * across the middle. */
-enum { TR_NONE = 0, TR_MOVE, TR_LOOK, TR_BUTTON, TR_ADVANCE };
+enum { TR_NONE = 0, TR_MOVE, TR_LOOK, TR_BUTTON, TR_ADVANCE,
+       TR_TG_STICK, TR_TG_BTN };
 
 /* Actions the on-screen buttons drive. Indices into s_Buttons. */
 enum { TB_AIM = 0, TB_ITEM, TB_MAP, TB_START, TB_RUN, TB_BACK, TB_FIRE, TB_MENU,
@@ -411,6 +412,156 @@ static int Tc_Mode(void)
  * touch always has a way back out -- opening one with no way to leave it is
  * how the pause screen trapped the player. Drawn in the corner slot whatever
  * the action, so "get out of here" is always in the same place. */
+/* ------------------------------------------------------- gamepad style ---
+ *
+ * The alternate scheme: a fixed PSX pad rather than the context-sensitive
+ * overlay above. Adapted from WhoisMiau0x1's Android fork of this port, which
+ * takes the opposite approach on purpose -- everything in one place, always,
+ * so a player who knows a DualShock already knows this.
+ *
+ * Laid out in units of screen HEIGHT, never width. Height is the stable
+ * dimension in landscape: an 18:9 phone and a 4:3 tablet differ enormously in
+ * width but put the thumbs at the same place relative to height, so this keeps
+ * every control the same physical size and leaves the wide middle -- where the
+ * game is -- clear.
+ *
+ * Raw PSX bits, not controllerConfig binds. This IS a pad, so a face button
+ * has to be the button it is drawn as; routing it through the rebindable
+ * action names would make Circle stop being Circle the moment someone remapped
+ * anything. The word is active-low and ANDed into the pad, same as above.
+ *
+ * These are the RAW pad-buffer bits, not libetc.h's PAD* names: the raw report
+ * is a little-endian u_short whose two bytes are SWAPPED relative to what
+ * PadRead() returns, so PADRup and friends would compile cleanly here and
+ * silently turn triangle into d-pad up. */
+#define TG_SELECT   0x0001
+#define TG_START    0x0008
+#define TG_UP       0x0010
+#define TG_RIGHT    0x0020
+#define TG_DOWN     0x0040
+#define TG_LEFT     0x0080
+#define TG_L2       0x0100
+#define TG_R2       0x0200
+#define TG_L1       0x0400
+#define TG_R1       0x0800
+#define TG_TRIANGLE 0x1000
+#define TG_CIRCLE   0x2000
+#define TG_CROSS    0x4000
+#define TG_SQUARE   0x8000
+
+#define TG_STICK_CX 0.26f
+#define TG_STICK_CY 0.70f
+#define TG_STICK_R  0.165f
+#define TG_KNOB_R   0.075f
+#define TG_DEAD     0.20f
+
+#define TG_BTN_CX   0.26f   /* face cluster centre, from the RIGHT edge */
+#define TG_BTN_CY   0.70f
+#define TG_BTN_D    0.125f  /* cluster arm length */
+#define TG_BTN_R    0.068f
+#define TG_SHLD_W   0.080f
+#define TG_SHLD_H   0.040f
+
+/* Drawn small, caught generously: a thumb's contact patch sits below where the
+ * player thinks it is, and a button that catches wide feels accurate while the
+ * reverse feels broken. */
+#define TG_HIT_GROW 1.30f
+
+typedef struct
+{
+    float          cx, cy;  /* centre in HEIGHT units, x from the left edge */
+    float          hw, hh;  /* half extents; circular when hw == hh */
+    int            circle;
+    unsigned short bit;
+} s_TgCtl;
+
+enum { TG_C_TRIANGLE = 0, TG_C_CIRCLE, TG_C_CROSS, TG_C_SQUARE,
+       TG_C_L1, TG_C_L2, TG_C_START, TG_C_SELECT, TG_C_R2, TG_C_R1,
+       TG_C_COUNT };
+
+static s_TgCtl s_TgCtls[TG_C_COUNT];
+static int     s_TgHeld[TG_C_COUNT];
+static int     s_TgLaidOut;
+static float   s_TgAspectW;   /* screen width in height units */
+
+/* Rebuilt whenever the aspect changes: x is resolved from the right edge for
+ * the clusters that belong there, which needs the width in height units. */
+static void Tg_Layout(float aspectW)
+{
+    float rx = aspectW - TG_BTN_CX;   /* face cluster centre from the left */
+    int   i;
+
+    if (s_TgLaidOut && s_TgAspectW == aspectW)
+        return;
+
+    s_TgAspectW = aspectW;
+    s_TgLaidOut = 1;
+
+    /* Face diamond, PSX arrangement: triangle up, cross down, square left,
+     * circle right. */
+    s_TgCtls[TG_C_TRIANGLE] = (s_TgCtl){ rx,            TG_BTN_CY - TG_BTN_D, TG_BTN_R, TG_BTN_R, 1, TG_TRIANGLE };
+    s_TgCtls[TG_C_CROSS]    = (s_TgCtl){ rx,            TG_BTN_CY + TG_BTN_D, TG_BTN_R, TG_BTN_R, 1, TG_CROSS };
+    s_TgCtls[TG_C_SQUARE]   = (s_TgCtl){ rx - TG_BTN_D, TG_BTN_CY,            TG_BTN_R, TG_BTN_R, 1, TG_SQUARE };
+    s_TgCtls[TG_C_CIRCLE]   = (s_TgCtl){ rx + TG_BTN_D, TG_BTN_CY,            TG_BTN_R, TG_BTN_R, 1, TG_CIRCLE };
+
+    /* Top row: shoulders at the outside, Start/Select inboard of them. */
+    s_TgCtls[TG_C_L1]     = (s_TgCtl){ 0.14f,            0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_L1 };
+    s_TgCtls[TG_C_L2]     = (s_TgCtl){ 0.34f,            0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_L2 };
+    s_TgCtls[TG_C_START]  = (s_TgCtl){ aspectW * 0.5f - 0.11f, 0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_START };
+    s_TgCtls[TG_C_SELECT] = (s_TgCtl){ aspectW * 0.5f + 0.11f, 0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_SELECT };
+    s_TgCtls[TG_C_R2]     = (s_TgCtl){ aspectW - 0.34f,   0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_R2 };
+    s_TgCtls[TG_C_R1]     = (s_TgCtl){ aspectW - 0.14f,   0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_R1 };
+
+    for (i = 0; i < TG_C_COUNT; i++)
+        s_TgHeld[i] = 0;
+}
+
+/* Viewport coords -> height units, x from the left. */
+static void Tg_ToHeight(float vx, float vy, float aspectW, float* hx, float* hy)
+{
+    *hx = vx * aspectW;
+    *hy = vy;
+}
+
+static int Tg_HitCtl(float hx, float hy)
+{
+    int i;
+
+    for (i = 0; i < TG_C_COUNT; i++)
+    {
+        float dx = hx - s_TgCtls[i].cx;
+        float dy = hy - s_TgCtls[i].cy;
+        float hw = s_TgCtls[i].hw * TG_HIT_GROW;
+        float hh = s_TgCtls[i].hh * TG_HIT_GROW;
+
+        if (s_TgCtls[i].circle)
+        {
+            if ((dx * dx) + (dy * dy) <= (hw * hw))
+                return i;
+        }
+        else if (dx > -hw && dx < hw && dy > -hh && dy < hh)
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static int Tg_HitStick(float hx, float hy)
+{
+    float dx = hx - TG_STICK_CX;
+    float dy = hy - TG_STICK_CY;
+    float r  = TG_STICK_R * TG_HIT_GROW;
+
+    return ((dx * dx) + (dy * dy)) <= (r * r);
+}
+
+static int Tc_GamepadStyle(void)
+{
+    return g_PcConfig.touchStyle == TouchStyle_Gamepad;
+}
+
 static int Tc_SoloButton(int mode)
 {
     if (mode == TC_MODE_PAUSE || mode == TC_MODE_ESCAPE)
@@ -615,6 +766,15 @@ void Pc_Touch_Update(void)
 
     s_PadWord     = 0xFFFF;
     s_AdvanceHeld = 0;
+
+    if (Tc_GamepadStyle())
+    {
+        int c;
+
+        Tg_Layout(Tc_Aspect());
+        for (c = 0; c < TG_C_COUNT; c++)
+            s_TgHeld[c] = 0;
+    }
     for (i = 0; i < TB_COUNT; i++)
     {
         s_Buttons[i].held = 0;
@@ -683,7 +843,37 @@ void Pc_Touch_Update(void)
             {
                 int b = Tc_HitButton(vx, vy, aspect);
 
-                if (mode == TC_MODE_ADVANCE)
+                if (mode == TC_MODE_GAMEPLAY && Tc_GamepadStyle())
+                {
+                    /* Fixed pad: the stick and the buttons are the only things
+                     * on screen, and everything else is scenery. No drag-look
+                     * and no tap-to-Action -- on a pad those are the right
+                     * stick and Circle, both of which are drawn. */
+                    float hx, hy;
+
+                    Tg_ToHeight(vx, vy, s_TgAspectW, &hx, &hy);
+
+                    {
+                        int c = Tg_HitCtl(hx, hy);
+
+                        if (c >= 0)
+                        {
+                            t->role      = TR_TG_BTN;
+                            t->buttonIdx = c;
+                        }
+                        else if (Tg_HitStick(hx, hy))
+                        {
+                            t->role      = TR_TG_STICK;
+                            t->buttonIdx = -1;
+                        }
+                        else
+                        {
+                            t->role      = TR_NONE;
+                            t->buttonIdx = -1;
+                        }
+                    }
+                }
+                else if (mode == TC_MODE_ADVANCE)
                 {
                     /* Anywhere on the screen, with no target to find: there is
                      * nothing else to touch during a scene or a wall of text. */
@@ -748,6 +938,63 @@ void Pc_Touch_Update(void)
             case TR_ADVANCE:
                 s_AdvanceHeld = 1;
                 break;
+
+            case TR_TG_BTN:
+                if (t->buttonIdx >= 0 && t->buttonIdx < TG_C_COUNT)
+                    s_TgHeld[t->buttonIdx] = 1;
+                break;
+
+            case TR_TG_STICK:
+            {
+                /* Absolute, not floating: the ring is drawn in a fixed place,
+                 * so the knob has to follow the thumb inside it. */
+                float hx, hy, dx, dy, len, mag;
+
+                Tg_ToHeight(vx, vy, s_TgAspectW, &hx, &hy);
+                dx  = hx - TG_STICK_CX;
+                dy  = hy - TG_STICK_CY;
+                len = SDL_sqrtf((dx * dx) + (dy * dy));
+
+                if (len > TG_STICK_R)
+                {
+                    dx  = (dx / len) * TG_STICK_R;
+                    dy  = (dy / len) * TG_STICK_R;
+                    len = TG_STICK_R;
+                }
+
+                mag = (len <= TG_STICK_R * TG_DEAD)
+                        ? 0.0f
+                        : (len - TG_STICK_R * TG_DEAD) / (TG_STICK_R - TG_STICK_R * TG_DEAD);
+
+                s_StickActive = 1;
+                s_StickOx     = TG_STICK_CX / s_TgAspectW;
+                s_StickOy     = TG_STICK_CY;
+                s_StickKx     = (TG_STICK_CX + dx) / s_TgAspectW;
+                s_StickKy     = TG_STICK_CY + dy;
+
+                if (mag > 0.0f && len > 0.0f)
+                {
+                    s_LeftX = Tc_AxisByte((dx / len) * mag);
+                    s_LeftY = Tc_AxisByte((dy / len) * mag);
+
+                    /* The d-pad bits as well as the analog position. Gameplay
+                     * reads the stick, but the inventory, the map screen and
+                     * every "press up or down to pick" prompt read the D-PAD
+                     * only -- a stick-only pad leaves those unnavigable. */
+                    if (mag > 0.5f)
+                    {
+                        if (dx >  len * 0.5f) s_PadWord &= (unsigned short)~TG_RIGHT;
+                        if (dx < -len * 0.5f) s_PadWord &= (unsigned short)~TG_LEFT;
+                        if (dy >  len * 0.5f) s_PadWord &= (unsigned short)~TG_DOWN;
+                        if (dy < -len * 0.5f) s_PadWord &= (unsigned short)~TG_UP;
+                    }
+                }
+                else
+                {
+                    s_LeftX = s_LeftY = 128;
+                }
+                break;
+            }
 
             case TR_BUTTON:
                 if (t->buttonIdx >= 0 && t->buttonIdx < TB_COUNT)
@@ -906,6 +1153,17 @@ void Pc_Touch_Update(void)
         if (s_Buttons[TB_ITEM].holdFrames  > 0) Tc_PressAction(&s_PadWord, cfg->item);
         if (s_Buttons[TB_MAP].holdFrames   > 0) Tc_PressAction(&s_PadWord, cfg->map);
         if (s_Buttons[TB_SKIP].holdFrames  > 0) Tc_PressAction(&s_PadWord, cfg->skip);
+
+        if (Tc_GamepadStyle())
+        {
+            int c;
+
+            for (c = 0; c < TG_C_COUNT; c++)
+            {
+                if (s_TgHeld[c])
+                    s_PadWord &= (unsigned short)~s_TgCtls[c].bit;
+            }
+        }
         if (s_Buttons[TB_LIGHT].holdFrames > 0) Tc_PressAction(&s_PadWord, cfg->light);
         if (s_Buttons[TB_VIEW].holdFrames  > 0) Tc_PressAction(&s_PadWord, cfg->view);
         if (s_Buttons[TB_START].holdFrames > 0) Tc_PressAction(&s_PadWord, cfg->pause);
@@ -1140,7 +1398,71 @@ void Pc_Touch_Draw(void)
     /* Movement stick: only while a thumb is down. A permanently drawn stick is
      * clutter on a screen this small, and the floating origin means a fixed
      * one would be lying about where it is anyway. */
-    if (s_StickActive && mode == TC_MODE_GAMEPLAY)
+    if (mode == TC_MODE_GAMEPLAY && Tc_GamepadStyle())
+    {
+        /* The fixed pad. Drawn whole and always, unlike the context overlay:
+         * a pad the player cannot see is a pad they cannot aim at, and the
+         * point of this style is that everything is in one known place. */
+        int   c;
+        float aw = s_TgAspectW;
+        int   ox = TC_UX(TG_STICK_CX / aw), oy = TC_UY(TG_STICK_CY);
+        int   rr = TC_UR(TG_STICK_R);
+        int   kx = s_StickActive ? TC_UX(s_StickKx) : ox;
+        int   ky = s_StickActive ? TC_UY(s_StickKy) : oy;
+
+        Tc_Ring(&batch, ox, oy, rr, (rr * 88) / 100, 140);
+        Tc_Octagon(&batch, kx, ky, TC_UR(TG_KNOB_R), s_StickActive ? 235 : 175);
+
+        for (c = 0; c < TG_C_COUNT; c++)
+        {
+            int bx  = TC_UX(s_TgCtls[c].cx / aw);
+            int by  = TC_UY(s_TgCtls[c].cy);
+            int lum = s_TgHeld[c] ? 255 : 145;
+
+            if (s_TgCtls[c].circle)
+            {
+                int br = TC_UR(s_TgCtls[c].hw);
+                int d  = (br * 34) / 100;
+
+                Tc_Ring(&batch, bx, by, br, (br * 80) / 100, lum);
+
+                /* The PSX face marks, so a player reads the pad rather than
+                 * learning four identical circles by position. */
+                switch (s_TgCtls[c].bit)
+                {
+                    case TG_TRIANGLE:
+                        Tc_Quad(&batch, bx, by - d, bx, by - d,
+                                        bx - d, by + d, bx + d, by + d, lum);
+                        break;
+                    case TG_CIRCLE:
+                        Tc_Ring(&batch, bx, by, d, (d * 55) / 100, lum);
+                        break;
+                    case TG_CROSS:
+                    {
+                        int t = (d * 30) / 100;
+                        Tc_Quad(&batch, bx - d, by - d + t, bx - d + t, by - d,
+                                        bx + d - t, by + d, bx + d, by + d - t, lum);
+                        Tc_Quad(&batch, bx + d - t, by - d, bx + d, by - d + t,
+                                        bx - d, by + d - t, bx - d + t, by + d, lum);
+                        break;
+                    }
+                    default: /* square */
+                        Tc_Quad(&batch, bx - d, by - d, bx + d, by - d,
+                                        bx - d, by + d, bx + d, by + d, lum);
+                        break;
+                }
+            }
+            else
+            {
+                int hw = TC_UR(s_TgCtls[c].hw);
+                int hh = TC_UR(s_TgCtls[c].hh);
+
+                Tc_Quad(&batch, bx - hw, by - hh, bx + hw, by - hh,
+                                bx - hw, by + hh, bx + hw, by + hh, lum);
+            }
+        }
+    }
+    else if (s_StickActive && mode == TC_MODE_GAMEPLAY)
     {
         int ox = TC_UX(s_StickOx), oy = TC_UY(s_StickOy);
         int kx = TC_UX(s_StickKx), ky = TC_UY(s_StickKy);
@@ -1161,6 +1483,12 @@ void Pc_Touch_Draw(void)
     for (i = 0; i < TB_COUNT; i++)
     {
         float bcx = s_Buttons[i].cx, bcy = s_Buttons[i].cy, br = s_Buttons[i].r;
+
+        /* The context buttons belong to the other style. Every non-gameplay
+         * mode still draws its solo escape button in both styles, which is what
+         * keeps the results screen and the map leavable either way. */
+        if (mode == TC_MODE_GAMEPLAY && Tc_GamepadStyle())
+            break;
         int   cx;
 
         if (mode == TC_MODE_ADVANCE)

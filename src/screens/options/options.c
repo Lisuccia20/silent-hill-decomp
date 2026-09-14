@@ -221,6 +221,8 @@ static const char* const LBL_MMMODE[] = { "Off", "Square", "Circle" };
 static const char* const LBL_TOUCH[]  = { "Automatic", "Always_On", "Always_Off" };
 static const int VAL_ORIENT[]  = { 0, 1, 2 };
 static const char* const LBL_ORIENT[] = { "Landscape", "Auto", "Portrait" };
+static const int VAL_TSTYLE[] = { 0, 1 };
+static const char* const LBL_TSTYLE[] = { "Context", "Gamepad" };
 static const char* const LBL_WHZ[]    = { "30_Hz", "60_Hz" };
 
 static const int RES_W[] = { 640, 1280, 1366, 1600, 1920, 2560, 3840 };
@@ -345,6 +347,10 @@ static const s_PcOpt PCOPT_C[] = {
      * longest name on this page and pushed the value column past where
      * Touch_Controls' "Always_Off" could finish before the 320px clip. */
     { "One_Button_Fire",   &g_PcConfig.oneButtonCombat,  "one_button_combat",      VAL_ONOFF, 2, LBL_ONOFF, NULL, 1, PCK_INT },
+    /* Context is this port's own scheme -- a floating stick, drag to look, tap
+     * to act, buttons that change with the screen. Gamepad is a fixed PSX pad
+     * in one place always, after WhoisMiau0x1's Android fork. Applies live. */
+    { "Touch_Style",       &g_PcConfig.touchStyle,       "touch_style",            VAL_TSTYLE, 2, LBL_TSTYLE, NULL, 1, PCK_INT },
 #endif
     /* A graphics option parked on the Controls page purely for room: 11 rows is
      * the real ceiling, not the 12 the Graphics comment above assumes, and this
