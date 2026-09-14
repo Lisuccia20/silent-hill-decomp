@@ -101,6 +101,7 @@ s_PcConfig g_PcConfig = {
 #else
     .touchControls       = TouchControls_Off,
 #endif
+    .touchStyle          = TouchStyle_Context,
     .screenOrientation   = 0, /* lock landscape: what the port has always done */
     .touchLookSensitivity = 1.0f,
     .renderScale         = 1.0f,
@@ -1022,6 +1023,15 @@ void PcConfig_Load(const char* path)
             if (v < 0.25f) v = 0.25f;
             if (v > 1.0f)  v = 1.0f;
             g_PcConfig.renderScale = v;
+        }
+        else if (strcmp(key, "touch_style") == 0)
+        {
+            int v = atoi(value);
+
+            if (v < TouchStyle_Context || v > TouchStyle_Gamepad)
+                v = TouchStyle_Context;
+
+            g_PcConfig.touchStyle = v;
         }
         else if (strcmp(key, "screen_orientation") == 0)
         {

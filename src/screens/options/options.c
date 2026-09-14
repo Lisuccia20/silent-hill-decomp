@@ -221,6 +221,8 @@ static const char* const LBL_MMMODE[] = { "Off", "Square", "Circle" };
 static const char* const LBL_TOUCH[]  = { "Automatic", "Always_On", "Always_Off" };
 static const int VAL_ORIENT[]  = { 0, 1, 2 };
 static const char* const LBL_ORIENT[] = { "Landscape", "Auto", "Portrait" };
+static const int VAL_TSTYLE[] = { 0, 1 };
+static const char* const LBL_TSTYLE[] = { "Context", "Gamepad" };
 static const char* const LBL_WHZ[]    = { "30_Hz", "60_Hz" };
 
 static const int RES_W[] = { 640, 1280, 1366, 1600, 1920, 2560, 3840 };
@@ -292,6 +294,12 @@ static const s_PcOpt PCOPT_S[] = {
     { "Disable_Culling",  &g_PcConfig.disableCulling, "disable_culling",  VAL_ONOFF, 2, LBL_ONOFF, NULL, 1, PCK_INT  },
     { "FPS_Limit",        &g_PcConfig.fpsCap,         "fps_cap",          VAL_FPS,   5, LBL_FPS,   NULL, 1, PCK_INT  },
     { "FMV_Movie_Vol",    NULL, "fmv_volume",           NULL, 0, NULL, NULL, 1, PCK_SLIDER, &g_PcConfig.fmvVolume,           &g_PcFmvVolume,             0.0f, 1.0f, 0.05f },
+    /* Rain and snow step once per rendered frame at 60, or on the original
+     * 30 Hz console cadence -- the same knob as the WEATHERHZ console command.
+     * Sits with FPS_Limit because it is the same kind of decision. The two
+     * Crosshair rows moved to the HUD page to make room, which is where the
+     * quick-options overlay already groups them. */
+    { "Weather_Rate",     &g_PcConfig.weatherSimHz,   "weather_sim_hz",   VAL_WHZ,   2, LBL_WHZ,   NULL, 1, PCK_INT  },
 #if defined(SH_IOS) || defined(__ANDROID__)
     /* Twelfth row, one past what the other pages carry. It fits: rows start at
      * PCOPT_LINE_BASE_Y 40 and step 16, so this page now ends at y=216 --
@@ -302,12 +310,6 @@ static const s_PcOpt PCOPT_S[] = {
      * left in the config. */
     { "Achievements",     NULL,                       NULL,               NULL,      0, NULL,      NULL, 0, PCK_RALOGIN },
 #endif
-    /* Rain and snow step once per rendered frame at 60, or on the original
-     * 30 Hz console cadence -- the same knob as the WEATHERHZ console command.
-     * Sits with FPS_Limit because it is the same kind of decision. The two
-     * Crosshair rows moved to the HUD page to make room, which is where the
-     * quick-options overlay already groups them. */
-    { "Weather_Rate",     &g_PcConfig.weatherSimHz,   "weather_sim_hz",   VAL_WHZ,   2, LBL_WHZ,   NULL, 1, PCK_INT  },
     { "Prev_Page",        NULL,                       NULL,               NULL,      0, NULL,      NULL, 0, PCK_PREV },
     { "Next_Page",        NULL,                       NULL,               NULL,      0, NULL,      NULL, 0, PCK_NEXT },
     { "Back",             NULL,                       NULL,               NULL,      0, NULL,      NULL, 0, PCK_BACK },
@@ -330,8 +332,6 @@ static const s_PcOpt PCOPT_C[] = {
     { "Pad_Sensitivity",   NULL, "controller_sensitivity", NULL, 0, NULL, NULL, 1, PCK_SLIDER, &g_PcConfig.controllerSensitivity, NULL, 0.1f, 4.0f, 0.1f },
     /* The three per-camera FOVs moved to the Camera page (grouped with the aim/
      * camera options) once OTS got its own FOV -- the Controls page was full. */
-/* No mouse to invert on a phone; the key still loads from config.cfg for
- * anyone pairing one over USB-C, same as Mouse_Sensitivity above. */
 #if !defined(__ANDROID__) && !defined(SH_IOS)
     { "Invert_Mouse_Y",    &g_PcConfig.invertMouseY,      "invert_mouse_y",         VAL_ONOFF, 2, LBL_ONOFF, NULL, 1, PCK_INT },
 #endif
@@ -347,6 +347,10 @@ static const s_PcOpt PCOPT_C[] = {
      * longest name on this page and pushed the value column past where
      * Touch_Controls' "Always_Off" could finish before the 320px clip. */
     { "One_Button_Fire",   &g_PcConfig.oneButtonCombat,  "one_button_combat",      VAL_ONOFF, 2, LBL_ONOFF, NULL, 1, PCK_INT },
+    /* Context is this port's own scheme -- a floating stick, drag to look, tap
+     * to act, buttons that change with the screen. Gamepad is a fixed PSX pad
+     * in one place always, after WhoisMiau0x1's Android fork. Applies live. */
+    { "Touch_Style",       &g_PcConfig.touchStyle,       "touch_style",            VAL_TSTYLE, 2, LBL_TSTYLE, NULL, 1, PCK_INT },
 #endif
     /* A graphics option parked on the Controls page purely for room: 11 rows is
      * the real ceiling, not the 12 the Graphics comment above assumes, and this

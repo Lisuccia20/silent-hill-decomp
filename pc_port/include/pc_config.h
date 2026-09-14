@@ -56,6 +56,12 @@ typedef struct {
  * setting again. See pc_touch.c. */
 typedef enum
 {
+    TouchStyle_Context = 0, /* floating stick + drag-look + context buttons */
+    TouchStyle_Gamepad = 1  /* a fixed virtual PSX pad */
+} e_TouchStyle;
+
+typedef enum
+{
     TouchControls_Off  = 0,
     TouchControls_Auto = 1, /* shown when nothing else is driving; stands aside for a pad */
     TouchControls_On   = 2  /* shown even with a controller attached */
@@ -251,6 +257,11 @@ typedef struct {
      * otherwise derives this from the window's proportions, which on a device
      * rotated to portrait letterboxes the game into a strip. Config key:
      * screen_orientation. */
+    /* Which on-screen control scheme: 0 = Context (the floating stick, drag to
+     * look, tap to act, buttons that change with the screen), 1 = Gamepad (a
+     * fixed PSX pad -- stick, four face buttons, shoulders, Start/Select --
+     * drawn in the same place always). e_TouchStyle. Config key: touch_style. */
+    int   touchStyle;
     int   screenOrientation;
     float touchLookSensitivity; /* touch look speed multiplier, 0.1..4.0 (config key: touch_look_sensitivity); default 1.0 */
     int   oneButtonCombat;  /* 1 = Aim also fires, so combat is one thumb (config key: one_button_combat) */
