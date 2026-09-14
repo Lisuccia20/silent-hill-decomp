@@ -177,3 +177,78 @@ void Ios_EnsureMemoryCard(void)
         }
     }
 }
+
+/* Create the mod folders, empty, on first run.
+ *
+ * Everything the loose-file loader reads is a relative path under gamedata/,
+ * and the chdir to Documents already makes those resolve somewhere the user
+ * can reach. The gap is purely discoverability: Files.app shows what exists,
+ * so a folder nobody created is a folder nobody finds, and the player has no
+ * launcher and no documentation on the device telling them the names to type.
+ *
+ * Only the two roots and a note. The per-folder layout underneath (ITEM, SND,
+ * XA and the rest) mirrors the disc's own folder names, which is what the note
+ * explains, and guessing a full tree here would just create empty folders for
+ * channels most players never touch.
+ *
+ * Never overwrites: a player who has already put mods in keeps what they have,
+ * and an edited note stays edited. */
+void Ios_EnsureModFolders(void)
+{
+    @autoreleasepool
+    {
+        const char* docs = Ios_DocumentsPath();
+        if (docs == NULL)
+        {
+            return;
+        }
+
+        NSFileManager* fm   = [NSFileManager defaultManager];
+        NSString*      root = [fm stringWithFileSystemRepresentation:docs length:strlen(docs)];
+        NSString*      load = [root stringByAppendingPathComponent:@"gamedata/load"];
+        NSString*      tex  = [root stringByAppendingPathComponent:@"gamedata/texturemods"];
+        NSString*      note = [load stringByAppendingPathComponent:@"README.txt"];
+
+        for (NSString* dir in @[ load, tex ])
+        {
+            NSError* err = nil;
+            if (![fm createDirectoryAtPath:dir
+               withIntermediateDirectories:YES
+                                attributes:nil
+                                     error:&err])
+            {
+                NSLog(@"[SH] could not create %@: %@", dir, err.localizedDescription);
+            }
+        }
+
+        if (![fm fileExistsAtPath:note])
+        {
+            NSString* text =
+                @"Manually installed mods go here.\n"
+                 "\n"
+                 "Turn on Options > Graphics > Load Mods first, then restart the\n"
+                 "game. Files here are ignored while that is off.\n"
+                 "\n"
+                 "gamedata/load/<FOLDER>/<NAME>.<EXT>\n"
+                 "  <FOLDER> and <NAME> are the disc's own folder and file names,\n"
+                 "  so a replacement sits at the path the original came from.\n"
+                 "  Textures are .TIM, models .TMD, and .GLB is read where a\n"
+                 "  modern mesh replaces a model.\n"
+                 "\n"
+                 "gamedata/load/SND/<BANK>.VAB        replacement sound bank\n"
+                 "gamedata/load/SND/<BANK>.001.wav    single sound, numbered\n"
+                 "gamedata/load/XA/xa_0001.wav        replacement voice line\n"
+                 "gamedata/load/text_overrides.txt    replacement text\n"
+                 "\n"
+                 "gamedata/texturemods/ is separate and needs no switch: drop a\n"
+                 "DuckStation-format texture pack there as a folder or a .zip.\n";
+
+            NSError* err = nil;
+            if (![text writeToFile:note atomically:YES
+                          encoding:NSUTF8StringEncoding error:&err])
+            {
+                NSLog(@"[SH] could not write the mod note: %@", err.localizedDescription);
+            }
+        }
+    }
+}

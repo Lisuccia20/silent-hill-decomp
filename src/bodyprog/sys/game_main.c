@@ -2292,6 +2292,7 @@ static void Ml_TraceReport(unsigned frames)
     for (i = 0; i < s_mlTagCount; i++)
         s_mlMs[i] = 0;
 }
+#endif /* SH_PC_PORT -- phase timing */
 
 /* ---- world GTE anchor ------------------------------------------------------
  * Console vertical anchor. Disassembled 2026-08-29: GsInit3D (0x8009543C)
@@ -2362,6 +2363,7 @@ s32 Pc_WorldAnchorOfy(void)
     return PC_GTE_BASE_OFY;
 }
 
+#ifdef SH_PC_PORT
 /* The quick menu zeroes g_Controller0->heldBtnFlags after it reads them so
  * nothing underneath reacts, but Joy_ControllerDataUpdate derives the next
  * frame's clicked edges from that same field as "previous held". Zeroed, a

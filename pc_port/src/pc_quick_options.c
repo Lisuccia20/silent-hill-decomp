@@ -2042,6 +2042,14 @@ void Pc_QuickOptions_Draw(void)
     }
     if (!s_texTitle)
     {
+        /* Mobile pages are CHUNKS of a section, so the page index is not a
+         * section index there and qo_page_title is the only thing that can name
+         * one. Desktop keeps pc-port's dynamic View title, which reports the
+         * camera the page is currently editing. */
+#if defined(QO_MOBILE)
+        s_texTitle = qo_bake(qo_page_title(s_page), (float)(int)(titleH * 0.46f),
+                             &s_titleW, &s_titleH);
+#else
         const char* title = s_pageTitles[s_page];
         char titleBuf[64];
         if (s_page == 2)
@@ -2054,6 +2062,7 @@ void Pc_QuickOptions_Draw(void)
             title = titleBuf;
         }
         s_texTitle = qo_bake(title, (float)(int)(titleH * 0.46f), &s_titleW, &s_titleH);
+#endif
     }
 #if defined(QO_MOBILE)
     if (!s_texDec) s_texDec = qo_bake("-", (float)px, &s_decW, &s_decH);

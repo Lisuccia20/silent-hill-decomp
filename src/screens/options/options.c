@@ -263,6 +263,16 @@ static const s_PcOpt PCOPT_G[] = {
      * asks SetupActivity to put the chooser back up on the next launch. */
     { "Game_Data",      NULL,                           NULL,                   NULL,      0, NULL,      NULL,                          0, PCK_STORAGE },
 #endif
+#if defined(SH_IOS) || defined(__ANDROID__)
+    /* The one switch behind every gamedata/load/ channel: replacement textures,
+     * models, ILM/IPD, glTF meshes, SFX banks, XA voice lines and text
+     * overrides. Launcher-only on desktop, but a phone has no launcher, and
+     * editing config.cfg by hand through Files.app is the only alternative.
+     *
+     * Not realtime: the lookups run when an asset is loaded, so the room already
+     * in memory keeps what it has. Takes hold on the next load either way. */
+    { "Load_Mods",      &g_PcConfig.allowLooseFiles,    "allow_loose_files",    VAL_ONOFF, 2, LBL_ONOFF, NULL,                          0, PCK_INT    },
+#endif
 #if defined(SH_IOS)
     /* Lives on this page rather than System purely for room: System is already
      * at the 11-row ceiling, and this page has two spare rows on a phone now
