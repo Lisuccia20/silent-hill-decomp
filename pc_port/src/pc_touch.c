@@ -476,7 +476,7 @@ typedef struct
 } s_TgCtl;
 
 enum { TG_C_TRIANGLE = 0, TG_C_CIRCLE, TG_C_CROSS, TG_C_SQUARE,
-       TG_C_L1, TG_C_L2, TG_C_START, TG_C_SELECT, TG_C_R2, TG_C_R1,
+       TG_C_L1, TG_C_L2, TG_C_START, TG_C_MENU, TG_C_SELECT, TG_C_R2, TG_C_R1,
        TG_C_COUNT };
 
 static s_TgCtl s_TgCtls[TG_C_COUNT];
@@ -507,8 +507,28 @@ static void Tg_Layout(float aspectW)
     /* Top row: shoulders at the outside, Start/Select inboard of them. */
     s_TgCtls[TG_C_L1]     = (s_TgCtl){ 0.14f,            0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_L1 };
     s_TgCtls[TG_C_L2]     = (s_TgCtl){ 0.34f,            0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_L2 };
-    s_TgCtls[TG_C_START]  = (s_TgCtl){ aspectW * 0.5f - 0.11f, 0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_START };
-    s_TgCtls[TG_C_SELECT] = (s_TgCtl){ aspectW * 0.5f + 0.11f, 0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_SELECT };
+    /* Three across the middle, not two: the quick menu has no PSX button to
+     * borrow, and the context style's own menu key is not drawn in this style,
+     * so without one here the overlay is unreachable on a pad. Centred on the
+     * screen with the pair split either side of it, which keeps the set
+     * symmetrical rather than hanging the extra key off one end. */
+    {
+        /* Spacing gives way on a narrow screen. A phone has room to spare, but
+         * a 4:3 tablet does not: L2 and R2 sit 0.34 in from each edge, and a
+         * fixed gap wide enough to look right at 18:9 would put Start on top of
+         * L2 there. Widest that clears them, never tighter than the plates. */
+        const float mid  = aspectW * 0.5f;
+        const float room = mid - (0.34f + (TG_SHLD_W * 2.0f) + 0.02f);
+        const float tight = (TG_SHLD_W * 2.0f) + 0.01f;
+        float       sp   = 0.22f;
+
+        if (sp > room)  sp = room;
+        if (sp < tight) sp = tight;
+
+        s_TgCtls[TG_C_START]  = (s_TgCtl){ mid - sp, 0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_START };
+        s_TgCtls[TG_C_MENU]   = (s_TgCtl){ mid,      0.08f, TG_SHLD_W, TG_SHLD_H, 0, 0 };
+        s_TgCtls[TG_C_SELECT] = (s_TgCtl){ mid + sp, 0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_SELECT };
+    }
     s_TgCtls[TG_C_R2]     = (s_TgCtl){ aspectW - 0.34f,   0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_R2 };
     s_TgCtls[TG_C_R1]     = (s_TgCtl){ aspectW - 0.14f,   0.08f, TG_SHLD_W, TG_SHLD_H, 0, TG_R1 };
 
@@ -1117,7 +1137,13 @@ void Pc_Touch_Update(void)
             s_CancelFrames = TC_ACTION_FRAMES;
         }
 
-        if (t->role == TR_MOVE)
+        /* TR_TG_STICK as well as TR_MOVE. The gamepad stick was missing here,
+         * and s_LeftX/s_LeftY are not reset per frame -- only a release or the
+         * deadzone clears them -- so letting go left the last deflection in the
+         * pad forever. The knob stayed drawn off-centre, and the stuck movement
+         * kept overriding anything else: a sidestep on L1/R1 began and was
+         * cancelled a frame later by the walk that was still being demanded. */
+        if (t->role == TR_MOVE || t->role == TR_TG_STICK)
         {
             s_StickActive = 0;
             s_LeftX = s_LeftY = 128;
@@ -1178,6 +1204,19 @@ void Pc_Touch_Update(void)
             if (menuNow && !s_menuWas && Tc_MenuAllowed())
                 Pc_QuickOptions_Toggle();
             s_menuWas = menuNow;
+        }
+
+        /* The pad's own overlay key, edge-triggered the same way. It carries no
+         * PSX bit -- the loop above ANDs ~0, which changes nothing -- because
+         * there is no console button this maps to. Tested outside the style
+         * check so the edge is still cleared if the style changes mid-press. */
+        {
+            static int s_tgMenuWas;
+            const int  menuNow = Tc_GamepadStyle() && s_TgHeld[TG_C_MENU];
+
+            if (menuNow && !s_tgMenuWas && Tc_MenuAllowed())
+                Pc_QuickOptions_Toggle();
+            s_tgMenuWas = menuNow;
         }
         if (s_Buttons[TB_BACK].holdFrames  > 0) Tc_PressAction(&s_PadWord, cfg->cancel);
 
@@ -1448,6 +1487,29 @@ void Pc_Touch_Draw(void)
 
                 Tc_Quad(&batch, bx - hw, by - hh, bx + hw, by - hh,
                                 bx - hw, by + hh, bx + hw, by + hh, lum);
+
+                /* Three bars cut into the plate, so the overlay key reads as a
+                 * menu instead of a third shoulder button sitting in the middle
+                 * of the row. Drawn after the plate and darker than it. */
+                if (c == TG_C_MENU)
+                {
+                    int bw  = (hw * 45) / 100;
+                    int bt  = (hh * 16) / 100;
+                    int gap = (hh * 42) / 100;
+                    int k;
+
+                    if (bt  < 1) bt  = 1;
+                    if (gap < bt * 2) gap = bt * 2;
+
+                    for (k = -1; k <= 1; k++)
+                    {
+                        int cy = by + (k * gap);
+
+                        Tc_Quad(&batch, bx - bw, cy - bt, bx + bw, cy - bt,
+                                        bx - bw, cy + bt, bx + bw, cy + bt,
+                                        s_TgHeld[c] ? 95 : 45);
+                    }
+                }
             }
         }
     }
