@@ -497,12 +497,12 @@ void PcConfig_Load(const char* path)
         if (strcmp(key, "width") == 0)
         {
             int v = atoi(value);
-            if (v >= 320) g_PcConfig.windowWidth = v;
+            if (v == 0 || v >= 320) g_PcConfig.windowWidth = v;
         }
         else if (strcmp(key, "height") == 0)
         {
             int v = atoi(value);
-            if (v >= 240) g_PcConfig.windowHeight = v;
+            if (v == 0 || v >= 240) g_PcConfig.windowHeight = v;
         }
         else if (strcmp(key, "fullscreen") == 0)
         {

@@ -46,8 +46,8 @@ typedef struct {
 } ControlScheme;
 
 typedef struct {
-    int windowWidth;
-    int windowHeight;
+    int windowWidth;      /* 0 = auto (match the desktop's current resolution at startup) */
+    int windowHeight;     /* 0 = auto, same as windowWidth */
     int fullscreen;      /* 0 = windowed, 1 = exclusive fullscreen, 2 = borderless (desktop) */
     int confineCursor;   /* keep the pointer inside the window while focused, fullscreen/borderless only (config key: confine_cursor) */
     int disableCulling;  /* 1 = render all objects regardless of view angle */

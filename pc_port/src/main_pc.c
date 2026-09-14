@@ -893,6 +893,25 @@ int main(int argc, char* argv[])
     }
     int windowWidth = g_PcConfig.windowWidth;
     int windowHeight = g_PcConfig.windowHeight;
+    if (windowWidth <= 0 || windowHeight <= 0)
+    {
+        /* config.cfg width/height = 0: match the desktop's current resolution
+         * (e.g. a Steam Deck's 1280x800) instead of a fixed default. Needs
+         * SDL video up before PsyX_Initialise does its own SDL_Init -- SDL
+         * ref-counts subsystem init so calling it again there is harmless. */
+        SDL_DisplayMode dm;
+        if (SDL_Init(SDL_INIT_VIDEO) == 0 && SDL_GetDesktopDisplayMode(0, &dm) == 0)
+        {
+            windowWidth = dm.w;
+            windowHeight = dm.h;
+        }
+        else
+        {
+            windowWidth = 1280;
+            windowHeight = 720;
+        }
+        SH_LOG("Auto-detected display resolution: %dx%d", windowWidth, windowHeight);
+    }
 
     SH_LOG("Game data path: %s", g_GameDataPath);
 
