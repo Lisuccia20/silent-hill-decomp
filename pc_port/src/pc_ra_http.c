@@ -136,6 +136,108 @@ int Pc_RaHttpRequest(const char* url, const char* post, char** out_body, size_t*
     return (int)status;
 }
 
+int Pc_HttpTransfer(const char* method, const char* url, const char* extra_header,
+                    const void* body, size_t body_len, char** out_body, size_t* out_len)
+{
+    HINTERNET      session = NULL, connect = NULL, request = NULL;
+    URL_COMPONENTS uc;
+    wchar_t        wUrl[2048], wMethod[16], host[256], path[1536];
+    wchar_t        wHeader[1024];
+    DWORD          status = 0, statusLen = (DWORD)sizeof(DWORD);
+    char*          resp = NULL;
+    size_t         respLen = 0;
+
+    if (out_body) *out_body = NULL;
+    if (out_len)  *out_len  = 0;
+
+    if (!url || !url[0] || !method || !method[0])
+        return 0;
+    if (MultiByteToWideChar(CP_UTF8, 0, url, -1, wUrl,
+                            (int)(sizeof(wUrl) / sizeof(wUrl[0]))) == 0)
+        return 0;
+    if (MultiByteToWideChar(CP_UTF8, 0, method, -1, wMethod,
+                            (int)(sizeof(wMethod) / sizeof(wMethod[0]))) == 0)
+        return 0;
+
+    memset(&uc, 0, sizeof(uc));
+    uc.dwStructSize     = sizeof(uc);
+    uc.lpszHostName     = host;
+    uc.dwHostNameLength = (DWORD)(sizeof(host) / sizeof(host[0]));
+    uc.lpszUrlPath      = path;
+    uc.dwUrlPathLength  = (DWORD)(sizeof(path) / sizeof(path[0]));
+    if (!WinHttpCrackUrl(wUrl, 0, 0, &uc))
+        return 0;
+
+    session = WinHttpOpen(L"SilentHillPC/1.0",
+                          WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session)
+        return 0;
+
+    connect = WinHttpConnect(session, host, uc.nPort, 0);
+    if (connect)
+    {
+        const DWORD flags = (uc.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+        request = WinHttpOpenRequest(connect, wMethod, path, NULL,
+                                     WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    }
+
+    if (request)
+    {
+        LPCWSTR headers = WINHTTP_NO_ADDITIONAL_HEADERS;
+        DWORD   headersLen = 0;
+        const DWORD bodyLen = (body && body_len) ? (DWORD)body_len : 0;
+        BOOL ok;
+
+        if (extra_header && extra_header[0] &&
+            MultiByteToWideChar(CP_UTF8, 0, extra_header, -1, wHeader,
+                                (int)(sizeof(wHeader) / sizeof(wHeader[0]))) != 0)
+        {
+            headers    = wHeader;
+            headersLen = (DWORD)-1L;
+        }
+
+        ok = WinHttpSendRequest(request, headers, headersLen,
+                                bodyLen ? (LPVOID)body : WINHTTP_NO_REQUEST_DATA,
+                                bodyLen, bodyLen, 0);
+        if (ok)
+            ok = WinHttpReceiveResponse(request, NULL);
+
+        if (ok)
+        {
+            WinHttpQueryHeaders(request,
+                                WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusLen,
+                                WINHTTP_NO_HEADER_INDEX);
+            for (;;)
+            {
+                DWORD avail = 0, got = 0;
+                char* grown;
+                if (!WinHttpQueryDataAvailable(request, &avail) || avail == 0)
+                    break;
+                grown = (char*)realloc(resp, respLen + avail + 1);
+                if (!grown)
+                    break;
+                resp = grown;
+                if (!WinHttpReadData(request, resp + respLen, avail, &got) || got == 0)
+                    break;
+                respLen += got;
+            }
+            if (resp)
+                resp[respLen] = '\0';
+        }
+        WinHttpCloseHandle(request);
+    }
+
+    if (connect)
+        WinHttpCloseHandle(connect);
+    WinHttpCloseHandle(session);
+
+    if (out_body) *out_body = resp; else free(resp);
+    if (out_len)  *out_len  = respLen;
+    return (int)status;
+}
+
 #elif defined(SH_RA_HAVE_CURL)
 
 #include <curl/curl.h>
@@ -184,6 +286,55 @@ int Pc_RaHttpRequest(const char* url, const char* post, char** out_body, size_t*
     curl_easy_cleanup(curl);
     *out_body = buf.data;
     *out_len  = buf.len;
+    return (int)status;
+}
+
+int Pc_HttpTransfer(const char* method, const char* url, const char* extra_header,
+                    const void* body, size_t body_len, char** out_body, size_t* out_len)
+{
+    CURL*              curl;
+    struct curl_slist* hdrs = NULL;
+    s_RaBuf            buf = { NULL, 0 };
+    long               status = 0;
+
+    if (out_body) *out_body = NULL;
+    if (out_len)  *out_len  = 0;
+
+    if (!url || !url[0] || !method || !method[0])
+        return 0;
+
+    curl = curl_easy_init();
+    if (!curl)
+        return 0;
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Pc_RaCurlWrite);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "SilentHillPC/1.0");
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+
+    if (extra_header && extra_header[0])
+        hdrs = curl_slist_append(hdrs, extra_header);
+    if (body && body_len)
+    {
+        hdrs = curl_slist_append(hdrs, "Content-Type: application/octet-stream");
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body_len);
+    }
+    if (hdrs)
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
+
+    if (curl_easy_perform(curl) == CURLE_OK)
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+
+    if (hdrs)
+        curl_slist_free_all(hdrs);
+    curl_easy_cleanup(curl);
+
+    if (out_body) *out_body = buf.data; else free(buf.data);
+    if (out_len)  *out_len  = buf.len;
     return (int)status;
 }
 
@@ -364,5 +515,18 @@ int Pc_RaHttpRequest(const char* url, const char* post, char** out_body, size_t*
     *out_len  = 0;
     return 0;
 }
+
+/* On Apple mobile the NSURLSession backend in pc_ios_http.m provides
+ * Pc_HttpTransfer; only stub it where no HTTP backend exists at all. */
+#if !defined(SH_HTTP_HAVE_APPLE)
+int Pc_HttpTransfer(const char* method, const char* url, const char* extra_header,
+                    const void* body, size_t body_len, char** out_body, size_t* out_len)
+{
+    (void)method; (void)url; (void)extra_header; (void)body; (void)body_len;
+    if (out_body) *out_body = NULL;
+    if (out_len)  *out_len  = 0;
+    return 0;
+}
+#endif
 
 #endif

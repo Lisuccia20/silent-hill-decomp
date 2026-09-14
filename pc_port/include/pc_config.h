@@ -452,6 +452,13 @@ typedef struct {
      * reads correctly. (config key: ra_spectator) */
     int  raSpectator;
 
+    /* Save-file sync to a user HTTP server. The two .MCD memory cards are
+     * pulled on launch and pushed after each save (last-writer-wins). See
+     * pc_save_sync.c. (config keys: save_sync / save_sync_url / save_sync_token) */
+    int  saveSync;            /* 1 = enable the mirror; 0 = off (default) */
+    char saveSyncUrl[192];    /* base URL, e.g. "https://lizonline.net/sh-saves" (no trailing slash) */
+    char saveSyncToken[128];  /* sent as the X-Sync-Token request header */
+
     char mapName[64];    /* e.g. "map0_s00" */
 } s_PcConfig;
 

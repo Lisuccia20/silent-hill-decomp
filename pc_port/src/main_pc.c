@@ -59,6 +59,7 @@ void        Ios_EnsureModFolders(void);
 #include "hires_override.h" /* HiresOverride_ClampBudgetToVram */
 #include "pc_audio_config.h"
 #include "pc_discord.h"
+#include "pc_save_sync.h"
 #include "map_registry.h"
 #include "main/fsqueue.h"
 #include "main/fileinfo.h"
@@ -1457,6 +1458,12 @@ int main(int argc, char* argv[])
         }
     }
 #endif
+
+    /* Save-file sync: relocate the .MCD files to a persistent path where needed
+     * (iOS) and, when configured, pull the latest cards from the user's server
+     * before the game reads the memory card. Pushes happen on save thereafter. */
+    Pc_SaveSync_Init(g_PcConfig.saveSync, g_PcConfig.saveSyncUrl, g_PcConfig.saveSyncToken);
+    Pc_SaveSync_PullAll();
 
     /* Needs the GL context, so it runs here rather than beside the system-RAM
      * clamp above. Same rule as that one: only ever lowers. */

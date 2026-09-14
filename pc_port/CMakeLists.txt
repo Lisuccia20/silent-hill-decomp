@@ -550,6 +550,18 @@ if(SH_HAVE_RETROACHIEVEMENTS)
     endif()
 endif()
 
+# Save-file sync (pc_save_sync.c) reuses the HTTP layer in pc_ra_http.c: WinHTTP
+# on Windows, libcurl where SH_RA_HAVE_CURL is set (desktop Linux/macOS). iOS
+# links neither, so provide a native NSURLSession backend (pc_ios_http.m) and
+# tell pc_ra_http.c not to emit its no-op Pc_HttpTransfer stub. iOS also needs
+# the .MCD files under a persistent pref path rather than the CWD.
+if(IOS)
+    enable_language(OBJC)
+    target_sources(SilentHillPC PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/pc_ios_http.m")
+    target_compile_definitions(SilentHillPC PRIVATE SH_HTTP_HAVE_APPLE=1 SH_SAVE_DIR_PREFPATH=1)
+    target_link_libraries(SilentHillPC PRIVATE "-framework Foundation")
+endif()
+
 # On Linux/ELF the map overlay .so files no longer link their own copy of
 # PsyCross (see maps/CMakeLists.txt) — they import the entire PsyCross runtime
 # from this executable at dlopen so there is a single, initialized instance of
